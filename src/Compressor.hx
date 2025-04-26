@@ -19,14 +19,16 @@ import lime.graphics.Image;
 class Compressor
 {
   static var CACHE_DIR:String;
+  static var COMMAND_CWD:String;
   static var astcFile:String = null;
   static var version:String = "0.0.1";
   static var qualityOptions:Array<String> = ['-fastest', '-fast', '-medium', '-thorough', '-exhaustive'];
 
   public static function main()
   {
-    CACHE_DIR = Sys.getEnv("TEMP");
     var args = Sys.args().copy();
+    COMMAND_CWD = args[args.length - 1];
+    args.remove(COMMAND_CWD);
 
     #if hxp
     switch (System.hostPlatform)
@@ -36,7 +38,7 @@ class Compressor
         CACHE_DIR = Sys.getEnv("TEMP");
       case MAC:
         astcFile = "./astcenc-mac";
-        CACHE_DIR = Sys.getEnv("TMPDIR")
+        CACHE_DIR = Sys.getEnv("TMPDIR");
       default:
         Sys.println('[Error] Unsupported platform!');
     }
@@ -47,7 +49,7 @@ class Compressor
       return;
     }
 
-    if (args.length <= 1 || (args.contains("-help") || args.contains("--help")))
+    if (args.length <= 0 || (args.contains("-help") || args.contains("--help")))
     {
       Sys.println('===========================================');
       Sys.println(' ASTC Compressor v$version');
@@ -80,12 +82,17 @@ class Compressor
       return;
     }
 
-    final path = args[0];
+    var path = args[0];
     final blockSize = args[1];
     final quality = args[2];
     final premultiply = args[3] == "-premultiply";
 
     var errored = false;
+
+    if (path.startsWith('./'))
+    {
+      path = path.replace('./', COMMAND_CWD);
+    }
 
     if (!FileSystem.exists(path))
     {
@@ -93,8 +100,8 @@ class Compressor
       errored = true;
     }
 
-    var blockParts = blockSize.split('x');
-    if (blockParts.length != 2 || !~/^\d+$/.match(blockParts[0]) || !~/^\d+$/.match(blockParts[1]))
+    var blockParts = blockSize?.split('x');
+    if (blockParts == null || blockParts.length != 2 || !~/^\d+$/.match(blockParts[0]) || !~/^\d+$/.match(blockParts[1]))
     {
       Sys.println('[Error] Invalid block size: ' + blockSize + ' (expected formats: 4x4, 6x6, 8x8)');
       errored = true;
