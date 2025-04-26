@@ -1,0 +1,7 @@
+-cp src
+-lib lime
+-lib hxp
+--each
+
+-main Compressor
+-neko run.n

@@ -1,0 +1,14 @@
+{
+  "name": "astc-compressor",
+  "url": "https://github.com/KarimAkra/astc-compressor",
+  "license": "MIT",
+  "tags": ["tools", "helpers"],
+  "description": "ASTC compressing tool for PNGs",
+  "version": "3.1.0",
+  "classPath": "src/",
+  "releasenote": "The shit",
+  "contributors": ["KarimAkra"],
+  "dependencies": {
+    "lime": "8.0.2"
+  }
+}
