@@ -31,8 +31,12 @@ class Compressor
     #if hxp
     switch (System.hostPlatform)
     {
-      case WINDOWS: astcFile = "astcenc-win.exe";
-      case MAC: astcFile = "./astcenc-mac";
+      case WINDOWS:
+        astcFile = "astcenc-win.exe";
+        CACHE_DIR = Sys.getEnv("TEMP");
+      case MAC:
+        astcFile = "./astcenc-mac";
+        CACHE_DIR = Sys.getEnv("TMPDIR")
       default:
         Sys.println('[Error] Unsupported platform!');
     }
