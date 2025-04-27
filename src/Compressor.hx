@@ -21,6 +21,8 @@ class Compressor
   static var CACHE_DIR:String;
   static var COMMAND_CWD:String;
   static var astcFile:String = null;
+  static var clean:Bool = false;
+  static var excludes:Array<String> = [];
   static var version:String = "0.0.1";
   static var qualityOptions:Array<String> = ['-fastest', '-fast', '-medium', '-thorough', '-exhaustive'];
 
@@ -49,54 +51,153 @@ class Compressor
       return;
     }
 
-    if (args.length <= 0 || (args.contains("-help") || args.contains("--help")))
+    if (args.length <= 0 || (args.contains("help") || args.contains("-help") || args.contains("--help")))
     {
       Sys.println('===========================================');
       Sys.println(' ASTC Compressor v$version');
       Sys.println('===========================================');
       Sys.println('');
       Sys.println('Usage:');
-      Sys.println('  haxelib run astc-compressor <path> <block-size> <quality> [-premultiply]');
+      Sys.println('  haxelib run astc-compressor <flags>');
       Sys.println('');
       Sys.println('Arguments:');
-      Sys.println('  <path>         Path to a PNG file or a folder containing PNG images.');
-      Sys.println('  <block-size>   Block size for ASTC compression (e.g., 4x4, 5x5, 8x8).');
-      Sys.println('                 Smaller block sizes = better quality, bigger files.');
-      Sys.println('  <quality>      Compression quality setting:');
-      Sys.println('                   -fastest    (lowest quality, fastest encoding)');
-      Sys.println('                   -fast       (faster encoding)');
-      Sys.println('                   -medium     (default, balanced)');
-      Sys.println('                   -thorough   (higher quality, slower)');
-      Sys.println('                   -exhaustive (highest quality, very slow)');
-      Sys.println('  -premultiply   (Optional) Premultiply alpha before compressing.');
+      Sys.println('  -i <path>           Path to a PNG file or a folder containing PNG images.');
+      Sys.println('  -blocksize <size>   Block size for ASTC compression (e.g., 4x4, 6x6, 8x8).');
+      Sys.println('                       Smaller block sizes = better quality, bigger files.');
+      Sys.println('  -quality <option>   Compression quality setting:');
+      Sys.println('                       -fastest    (lowest quality, fastest encoding)');
+      Sys.println('                       -fast       (faster encoding)');
+      Sys.println('                       -medium     (default, balanced)');
+      Sys.println('                       -thorough   (higher quality, slower)');
+      Sys.println('                       -exhaustive (highest quality, very slow)');
+      Sys.println('  -premultiply        (Optional) Premultiply alpha before compressing.');
+      Sys.println('  -o <output-path>    (Optional) Path to the output directory where compressed textures will be saved.');
+      Sys.println('  -excludes <file>    (Optional) Path to a text file that lists files to exclude from compression.');
       Sys.println('');
       Sys.println('Examples:');
-      Sys.println('  haxelib run astc-compressor ./textures 4x4 -medium');
-      Sys.println('  haxelib run astc-compressor ./image.png 8x8 -thorough -premultiply');
+      Sys.println('  haxelib run astc-compressor -i ./textures -blocksize 4x4 -quality medium -o ./output');
+      Sys.println('  haxelib run astc-compressor -i ./image.png -blocksize 8x8 -quality thorough -premultiply -o ./output');
+      Sys.println('  haxelib run astc-compressor -i ./textures -blocksize 6x6 -quality fast -excludes ./excludes.txt');
       Sys.println('');
       Sys.println('Notes:');
       Sys.println('  - Premultiplied alpha is useful for correct blending in some engines.');
       Sys.println('  - Always prefer 4x4 block size for highest visual quality.');
+      Sys.println('  - The -o option allows you to specify an output directory for compressed textures.');
+      Sys.println('  - The -excludes option lets you exclude specific files from compression by listing them in a text file.');
+      Sys.println('  - This tool is shit so please only use ./ for input, output and exclude path.');
       Sys.println('');
 
       return;
     }
 
-    var path = args[0];
-    final blockSize = args[1];
-    final quality = args[2];
-    final premultiply = args[3] == "-premultiply";
+    var path:String = "";
+    var cleanPath:String = "";
+    var output:String = "";
+    var blockSize:String = "";
+    var quality:String = "";
+    var premultiply:Bool = false;
+
+    var excludedPos:Array<Int> = [];
+
+    for (i in 0...args.length)
+    {
+      switch (args[i])
+      {
+        case "-i":
+          if (i + 1 < args.length)
+          {
+            path = cleanPath = args[i + 1];
+            excludedPos.push(i + 1);
+          }
+          else
+          {
+            Sys.println("Error: No path provided after '-i'");
+            return;
+          }
+
+        case "-o":
+          if (i + 1 < args.length)
+          {
+            output = args[i + 1];
+            excludedPos.push(i + 1);
+          }
+          else
+          {
+            Sys.println("Error: No output path provided after '-o'");
+            return;
+          }
+
+        case "-quality":
+          if (i + 1 < args.length)
+          {
+            quality = "-" + args[i + 1];
+            excludedPos.push(i + 1);
+          }
+          else
+          {
+            Sys.println("Error: No quality provided after '-quality'");
+            return;
+          }
+
+        case "-blocksize":
+          if (i + 1 < args.length)
+          {
+            blockSize = args[i + 1];
+            excludedPos.push(i + 1);
+          }
+          else
+          {
+            Sys.println("Error: No block size provided after '-blocksize'");
+            return;
+          }
+
+        case "-excludes":
+          excludes = parseExcludes(args[i + 1]);
+          excludedPos.push(i + 1);
+        case "-clean":
+          clean = true;
+          excludedPos.push(i + 1);
+
+        case "-premultiply":
+          premultiply = true;
+          excludedPos.push(i + 1);
+
+        default:
+          if (!excludedPos.contains(i))
+          {
+            Sys.println("Unknown argument: " + args[i]);
+            return;
+          }
+      }
+    }
 
     var errored = false;
 
-    if (path.startsWith('./'))
+    if (output.startsWith('./'))
     {
-      path = path.replace('./', COMMAND_CWD);
+      output = output.replace('./', COMMAND_CWD);
     }
 
-    if (!FileSystem.exists(path))
+    if (path.startsWith('./'))
     {
-      Sys.println('[Error] Invalid path: ' + path);
+      cleanPath = path.substr(2, path.length);
+
+      if (output.length <= 0)
+      {
+        path = path.replace('./', COMMAND_CWD);
+      }
+      else
+      {
+        path = cleanPath;
+      }
+    }
+
+    if ((!FileSystem.exists(path) && output.length <= 0) || (!FileSystem.exists(COMMAND_CWD + path) && output.length > 0))
+    {
+      if (output.length <= 0)
+        Sys.println('[Error] Invalid path: ' + path);
+      else
+        Sys.println('[Error] Invalid path: ' + COMMAND_CWD + path);
       errored = true;
     }
 
@@ -123,34 +224,42 @@ class Compressor
 
     if (!path.endsWith(".png"))
     {
-      compressDirectory(path, quality, blockSize, premultiply);
+      compressDirectory(path, cleanPath, output, quality, blockSize, premultiply);
     }
     else
     {
-      compressImage(path, quality, blockSize, premultiply);
+      compressImage(path, cleanPath, output, quality, blockSize, premultiply);
     }
   }
 
-  static function compressDirectory(path:String, quality:String, blockSize:String, premultiply:Bool)
+  static function compressDirectory(path:String, cleanPath:String, output:String, quality:String, blockSize:String, premultiply:Bool)
   {
-    for (entry in FileSystem.readDirectory(path))
+    var dir = output.length > 0 ? COMMAND_CWD + path : path;
+    for (entry in FileSystem.readDirectory(dir))
     {
-      if (isDirectory(Path.join([path, entry])))
+      var newPath = Path.join([path, entry]);
+      if (isDirectory(Path.join([dir, entry])))
       {
-        compressDirectory(Path.join([path, entry]), quality, blockSize, premultiply);
+        compressDirectory(newPath, Path.join([cleanPath, entry]), output, quality, blockSize, premultiply);
       }
       else
       {
         if (entry.endsWith('.png'))
-          compressImage(Path.join([path, entry]), quality, blockSize, premultiply);
+        {
+          if (!isExcluded(newPath))
+            compressImage(newPath, Path.join([cleanPath, entry]), output, quality, blockSize, premultiply);
+        }
       }
     }
   }
 
-  static function compressImage(path:String, quality:String, blockSize:String, premultiply:Bool)
+  static function compressImage(path:String, cleanPath:String, output:String, quality:String, blockSize:String, premultiply:Bool)
   {
-    final outputPath = Path.withoutExtension(path) + ".astc";
-    final inputPath = premultiply ? Path.join([CACHE_DIR, "astc-compressor", Path.withoutExtension(Path.withoutDirectory(path)) + "-premultiplied." + Path.extension(path)]) : path;
+    final outputPath = Path.join([output, Path.withoutExtension(path) + ".astc"]);
+    var inputPath = premultiply ? Path.join([CACHE_DIR, "astc-compressor", Path.withoutExtension(Path.withoutDirectory(path)) + "-premultiplied." + Path.extension(path)]) : path;
+    if (output.length > 0) inputPath = COMMAND_CWD + inputPath;
+
+    if (FileSystem.exists(inputPath) && !clean) return;
 
     if (premultiply)
     {
@@ -166,12 +275,60 @@ class Compressor
       Gc.run(false);
     }
 
+    FileSystem.createDirectory(Path.directory(outputPath));
     var proc = new Process(astcFile, ["-cl", inputPath, outputPath, blockSize, quality]);
     proc.close();
 
     Gc.run(true);
 
     Sys.println('[✔] ' + (premultiply ? 'Premultiplied and ' : '') + 'compressed "$path" as ASTC ($blockSize, $quality)');
+  }
+
+  static function parseExcludes(path:String):Array<String>
+  {
+    if (path.startsWith('./')) path = path.replace('./', COMMAND_CWD);
+    if (!FileSystem.exists(path))
+    {
+      Sys.println("[ERROR] Could not find exclude file at " + path + ", no exclusions will be applied");
+      return [];
+    }
+
+    var list = File.getContent(path).trim().split('\n');
+
+		for (i in 0...list.length)
+			list[i] = list[i].trim();
+
+    return list;
+  }
+
+  static function isExcluded(filePath:String):Bool
+  {
+    for (exclusion in excludes)
+    {
+      if (exclusion.endsWith("/*"))
+      {
+        var normalizedFilePath = Path.normalize(filePath);
+        var normalizedExclusion = Path.normalize(exclusion.substr(0, exclusion.length - 2));
+
+        if (normalizedFilePath.startsWith(normalizedExclusion))
+          return true;
+      }
+      else if (exclusion.endsWith("/"))
+      {
+        var normalizedExclusion = Path.normalize(exclusion);
+        var fileDirectory = Path.directory(Path.normalize(filePath));
+
+        if (fileDirectory == normalizedExclusion)
+          return true;
+      }
+      else
+      {
+        if (filePath == exclusion)
+          return true;
+      }
+    }
+
+    return false;
   }
 
   // Neko's FileSystem.isDirectory is dead so we do smth funny
