@@ -14,16 +14,13 @@ import neko.vm.Gc;
 
 using StringTools;
 
-import lime.graphics.Image;
-
 class Compressor
 {
-  static var CACHE_DIR:String;
   static var LIB_CWD:String;
   static var astcFile:String = null;
   static var clean:Bool = false;
   static var excludes:Array<String> = [];
-  static var version:String = "0.0.1";
+  static var version:String = "0.1.0";
   static var qualityOptions:Array<String> = ['-fastest', '-fast', '-medium', '-thorough', '-exhaustive'];
 
   public static function main()
@@ -37,10 +34,14 @@ class Compressor
     {
       case WINDOWS:
         astcFile = Path.join([LIB_CWD, "astcenc-win.exe"]);
-        CACHE_DIR = Sys.getEnv("TEMP");
       case MAC:
         astcFile = Path.join([LIB_CWD, "./astcenc-mac"]);
-        CACHE_DIR = Sys.getEnv("TMPDIR");
+        if (!FileSystem.exists(astcFile))
+        {
+          Sys.println('[Error] Could not find the ASTC CLI tool.');
+          Sys.println('        Please make sure you\'ve downloaded the MAC ASTC CLI and from https://github.com/ARM-software/astc-encoder/releases/tag/5.2.0 and have put it at $astcFile.');
+          astcFile = null;
+        }
       default:
         Sys.println('[Error] Unsupported platform!');
     }
@@ -61,7 +62,6 @@ class Compressor
     var output:String = "";
     var blockSize:String = "";
     var quality:String = "";
-    var premultiply:Bool = false;
 
     var excludedPos:Array<Int> = [];
 
@@ -124,10 +124,6 @@ class Compressor
           clean = true;
           excludedPos.push(i + 1);
 
-        case "-premultiply":
-          premultiply = true;
-          excludedPos.push(i + 1);
-
         default:
           if (!excludedPos.contains(i))
           {
@@ -168,64 +164,50 @@ class Compressor
 
     if (!path.endsWith(".png"))
     {
-      compressDirectory(path, output, quality, blockSize, premultiply);
+      compressDirectory(path, output, quality, blockSize);
     }
     else
     {
-      compressImage(path, output, quality, blockSize, premultiply);
+      compressImage(path, output, quality, blockSize);
     }
   }
 
-  static function compressDirectory(path:String, output:String, quality:String, blockSize:String, premultiply:Bool, EntryPath:String = '')
+  static function compressDirectory(path:String, output:String, quality:String, blockSize:String, EntryPath:String = '')
   {
     for (entry in FileSystem.readDirectory(path))
     {
       final entryPath = Path.join([EntryPath, entry]);
       final entryInputPath = Path.join([path, entry]);
       final entryOutputPath = Path.join([output, entry]);
+
       if (isDirectory(entryInputPath))
       {
-        compressDirectory(entryInputPath, entryOutputPath, quality, blockSize, premultiply, entryPath);
+        compressDirectory(entryInputPath, entryOutputPath, quality, blockSize, entryPath);
       }
       else
       {
-        if (entry.endsWith('.png'))
+        if (entry.endsWith('.png') && !isExcluded(entryInputPath))
         {
-          if (!isExcluded(entryInputPath))
-            compressImage(entryInputPath, entryOutputPath, quality, blockSize, premultiply, entryPath);
+          compressImage(entryInputPath, entryOutputPath, quality, blockSize, entryPath);
         }
       }
     }
   }
 
-  static function compressImage(path:String, output:String, quality:String, blockSize:String, premultiply:Bool, entryPath:String = '')
+  static function compressImage(path:String, output:String, quality:String, blockSize:String, entryPath:String = '')
   {
     final outputPath = Path.withoutExtension(output) + ".astc";
-    final inputPath = premultiply ? Path.join([CACHE_DIR, "astc-compressor", entryPath, Path.withoutExtension(Path.withoutDirectory(path)) + "-premultiplied.png"]) : path;
+    final inputPath = path;
 
     if (FileSystem.exists(outputPath) && !clean) return;
-
-    if (premultiply)
-    {
-      var image = Image.fromFile(path);
-      image.premultiplied = true;
-
-      final bytes = image.encode();
-      FileSystem.createDirectory(Path.directory(inputPath));
-      File.saveBytes(inputPath, bytes);
-
-    	image.data = null;
-			image = null;
-      Gc.run(false);
-    }
 
     FileSystem.createDirectory(Path.directory(outputPath));
     var proc = new Process(astcFile, ["-cl", inputPath, outputPath, blockSize, quality]);
     proc.close();
 
-    Gc.run(true);
+    Gc.run(false);
 
-    Sys.println('[✔] ' + (premultiply ? 'Premultiplied and ' : '') + 'compressed "$path" as ASTC ($blockSize, $quality)');
+    Sys.println('[✔] compressed "$path" as ASTC ($blockSize, $quality)');
   }
 
   static function logHelp():Void
@@ -249,16 +231,14 @@ class Compressor
     Sys.println('                       -exhaustive (highest quality, very slow)');
     Sys.println('  -o <output-path>    (Optional) Path to the output directory where compressed textures will be saved.');
     Sys.println('  -excludes <file>    (Optional) Path to a text file that lists files to exclude from compression.');
-    Sys.println('  -premultiply        (Optional) Premultiply alpha before compressing (NOTE: It can sometimes crash the compression process if there\'s a large path..?).');
     Sys.println('  -clean              (Optional) Compress all images in the input path regardless if they already are.');
     Sys.println('');
     Sys.println('Examples:');
     Sys.println('  haxelib run astc-compressor -i ./textures -blocksize 4x4 -quality medium -o ./output');
-    Sys.println('  haxelib run astc-compressor -i ./image.png -blocksize 8x8 -quality thorough -premultiply -o ./output');
+    Sys.println('  haxelib run astc-compressor -i ./image.png -blocksize 8x8 -quality thorough -o ./output -clean');
     Sys.println('  haxelib run astc-compressor -i ./textures -blocksize 6x6 -quality fast -excludes ./excludes.txt');
     Sys.println('');
     Sys.println('Notes:');
-    Sys.println('  - Premultiplied alpha is useful for correct blending in some engines.');
     Sys.println('  - Always prefer 4x4 block size for highest visual quality.');
     Sys.println('  - The -o option allows you to specify an output directory for compressed textures.');
     Sys.println('  - The -excludes option lets you exclude specific files from compression by listing them in a text file.');
@@ -292,7 +272,9 @@ class Compressor
         var normalizedExclusion = Path.normalize(exclusion.substr(0, exclusion.length - 2));
 
         if (normalizedFilePath.startsWith(normalizedExclusion))
+        {
           return true;
+        }
       }
       else if (exclusion.endsWith("/"))
       {
@@ -300,12 +282,16 @@ class Compressor
         var fileDirectory = Path.directory(Path.normalize(filePath));
 
         if (fileDirectory == normalizedExclusion)
+        {
           return true;
+        }
       }
       else
       {
         if (filePath == exclusion)
+        {
           return true;
+        }
       }
     }
 
