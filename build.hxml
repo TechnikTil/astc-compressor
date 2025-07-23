@@ -1,6 +1,4 @@
--cp src
--lib hxp
---each
-
--main Compressor
+-cp source
+-D analyzer-optimize
+-main Main
 -neko run.n
