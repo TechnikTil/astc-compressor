@@ -8,7 +8,7 @@
 		"compressor",
 		"ansi"
 	],
-	"description": "A Haxe/Neko runner for compressing image files as ASTC textures.",
+	"description": "A Haxe/Neko runner for compressing image files as ASTC textures using ASTC-Encoder.",
 	"version": "3.1.1",
 	"releasenote": "Rewrite the codebase.",
 	"contributors": [
