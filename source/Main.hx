@@ -106,7 +106,8 @@ class Main
 						final blocksize:Null<String> = options.get('blocksize');
 						final quality:Null<String> = options.get('quality');
 
-						final hasColorProfile:Bool = colorprofile != null && colorprofile.length > 0 ? COLOR_PROFILES.contains(colorprofile) : false;
+						final hasColorProfile:Bool = colorprofile != null
+							&& colorprofile.length > 0 ? COLOR_PROFILES.contains(colorprofile) : false;
 						final hasInput:Bool = input != null && input.length > 0;
 						final hasBlocksize:Bool = blocksize != null && ~/^\d+x\d+$/.match(blocksize);
 						final hasQuality:Bool = quality != null && quality.length > 0 ? COMPRESSION.contains(quality) : false;
@@ -194,6 +195,11 @@ class Main
 		{
 			Sys.println(ANSIUtil.apply('Could not find ASTC encoder at: "$ASTC_ENCODER_PATH".', [Red]));
 			Sys.exit(1);
+		}
+		else if (FileSystem.exists(ASTC_ENCODER_PATH))
+		{
+			if (Sys.systemName() == 'Linux' || Sys.systemName() == 'Mac')
+				ProcessUtil.runCommand('chmod', ['+x', ASTC_ENCODER_PATH]);
 		}
 	}
 
