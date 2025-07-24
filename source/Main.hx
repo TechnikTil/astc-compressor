@@ -38,10 +38,14 @@ class Main
 	@:noCompletion
 	private static var ASTC_ENCODER_PATH:String = '';
 
+	@:noCompletion
+	private static var LIB_PATH:String = '';
+
 	public static function main():Void
 	{
 		ARCHITECTURE = CPUUtil.getArchitecture();
 		THREADS = CPUUtil.getThreadsAmount();
+		LIB_PATH = Sys.getCwd();
 
 		final args:Array<String> = Sys.args();
 		final dir:Null<String> = args.pop();
@@ -78,8 +82,6 @@ class Main
 			}
 		}
 
-		trace(options);
-
 		if (dir != null && dir.length > 0)
 		{
 			Sys.setCwd(dir);
@@ -97,42 +99,14 @@ class Main
 				switch (command)
 				{
 					case 'compress':
-						switch (Sys.systemName())
-						{
-							case 'Windows':
-								if (ARCHITECTURE == Architecture.X64)
-									ASTC_ENCODER_PATH = 'plugins/Windows/x64/astcenc-sse2.exe';
-								else if (ARCHITECTURE == Architecture.ARM64)
-									ASTC_ENCODER_PATH = 'plugins/Windows/arm64/astcenc-neon.exe';
-
-								ASTC_ENCODER_PATH = ASTC_ENCODER_PATH.replace('/', '\\');
-							case 'Linux':
-								if (ARCHITECTURE == Architecture.X64)
-									ASTC_ENCODER_PATH = 'plugins/Linux/x64/astcenc-sse2';
-								else if (ARCHITECTURE == Architecture.ARM64)
-									ASTC_ENCODER_PATH = 'plugins/Linux/arm64/astcenc-neon';
-							case 'Mac':
-								ASTC_ENCODER_PATH = 'plugins/MacOS/astcenc';
-						}
-
-						if (ASTC_ENCODER_PATH.length <= 0)
-						{
-							Sys.println(ANSIUtil.apply('Could not determine ASTC encoder path for this platform/architecture.', [Red]));
-							Sys.exit(1);
-						}
-
-						final lib:Null<String> = libPath('astc-compressor');
-
-						if (lib != null && lib.length > 0)
-							ASTC_ENCODER_PATH = Path.join([lib, ASTC_ENCODER_PATH]);
+						prepareEncoder();
 
 						final colorprofile:Null<String> = options.get('colorprofile');
 						final input:Null<String> = options.get('i');
 						final blocksize:Null<String> = options.get('blocksize');
 						final quality:Null<String> = options.get('quality');
 
-						final hasColorProfile:Bool = colorprofile != null
-							&& colorprofile.length > 0 ? COLOR_PROFILES.contains(colorprofile) : false;
+						final hasColorProfile:Bool = colorprofile != null && colorprofile.length > 0 ? COLOR_PROFILES.contains(colorprofile) : false;
 						final hasInput:Bool = input != null && input.length > 0;
 						final hasBlocksize:Bool = blocksize != null && ~/^\d+x\d+$/.match(blocksize);
 						final hasQuality:Bool = quality != null && quality.length > 0 ? COMPRESSION.contains(quality) : false;
@@ -178,6 +152,47 @@ class Main
 		else
 		{
 			Sys.println(ANSIUtil.apply('No dir to run.', [Red]));
+			Sys.exit(1);
+		}
+	}
+
+	@:noCompletion
+	private static function prepareEncoder():Void
+	{
+		switch (Sys.systemName())
+		{
+			case 'Windows':
+				if (ARCHITECTURE == Architecture.X64)
+				{
+					ASTC_ENCODER_PATH = Path.join([LIB_PATH, 'plugins/Windows/x64/astcenc-sse2.exe']);
+				}
+				else if (ARCHITECTURE == Architecture.ARM64)
+				{
+					ASTC_ENCODER_PATH = Path.join([LIB_PATH, 'plugins/Windows/arm64/astcenc-neon.exe']);
+				}
+
+				ASTC_ENCODER_PATH = ASTC_ENCODER_PATH.replace('/', '\\');
+			case 'Linux':
+				if (ARCHITECTURE == Architecture.X64)
+				{
+					ASTC_ENCODER_PATH = Path.join([LIB_PATH, 'plugins/Linux/x64/astcenc-sse2']);
+				}
+				else if (ARCHITECTURE == Architecture.ARM64)
+				{
+					ASTC_ENCODER_PATH = Path.join([LIB_PATH, 'plugins/Linux/arm64/astcenc-neon']);
+				}
+			case 'Mac':
+				ASTC_ENCODER_PATH = Path.join([LIB_PATH, 'plugins/MacOS/astcenc']);
+		}
+
+		if (ASTC_ENCODER_PATH.length <= 0)
+		{
+			Sys.println(ANSIUtil.apply('Could not determine ASTC encoder path for this platform/architecture.', [Red]));
+			Sys.exit(1);
+		}
+		else if (!FileSystem.exists(ASTC_ENCODER_PATH))
+		{
+			Sys.println(ANSIUtil.apply('Could not find ASTC encoder at: "$ASTC_ENCODER_PATH".', [Red]));
 			Sys.exit(1);
 		}
 	}
@@ -278,35 +293,23 @@ class Main
 	}
 
 	@:noCompletion
-	private static function libPath(lib:String):Null<String>
-	{
-		return new sys.io.Process('haxelib', ['libpath', lib]).stdout.readLine();
-	}
-
-	@:noCompletion
 	private static function rebuildCommand():Void
 	{
-		final lib:Null<String> = libPath('astc-compressor');
+		final oldCwd:String = Sys.getCwd();
 
-		if (lib != null && lib.length > 0)
+		Sys.setCwd(LIB_PATH);
+
+		final result:Int = ProcessUtil.runCommand('haxe', ['build.hxml']);
+
+		Sys.setCwd(oldCwd);
+
+		if (result != 0)
 		{
-			Sys.setCwd(lib);
-
-			final result:Int = ProcessUtil.runCommand('haxe', ['build.hxml']);
-
-			if (result != 0)
-			{
-				Sys.println(ANSIUtil.apply('Failed to rebuild.', [Red]));
-				Sys.exit(result);
-			}
-			else
-				Sys.println(ANSIUtil.apply('Successfully rebuilt "astc-compressor" runner.', [Green]));
+			Sys.println(ANSIUtil.apply('Failed to rebuild.', [Red]));
+			Sys.exit(result);
 		}
 		else
-		{
-			Sys.println(ANSIUtil.apply('Failed to rebuild, cannot find "astc-compressor" lib path.', [Red]));
-			Sys.exit(1);
-		}
+			Sys.println(ANSIUtil.apply('Successfully rebuilt "astc-compressor" runner.', [Green]));
 	}
 
 	@:noCompletion
