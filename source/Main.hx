@@ -321,9 +321,9 @@ class Main
 		var quality:String = COMPRESSION_DATA.quality;
 		var output:String = COMPRESSION_DATA.output;
 		var excludes:Null<Array<String>> = COMPRESSION_DATA.excludes;
-		var clean:Null<Bool> = COMPRESSION_DATA.clean;
+		var clean:Null<Bool> = COMPRESSION_DATA.clean ?? false;
 
-		if (clean == true && (output != null && output.length > 0 && FileSystem.exists(output) && FileUtil.isDirectory(output)))
+		if (clean && (output != null && output.length > 0 && FileSystem.exists(output) && FileUtil.isDirectory(output)))
 			FileUtil.deletePath(output);
 
 		final excludedFiles:Array<String> = [];
@@ -396,6 +396,8 @@ class Main
 
 		if (output != null && output.length > 0)
 			outputFile = Path.join([output, outputFile]);
+
+		if (FileSystem.exists(outputFile)) return;
 
 		FileUtil.createDirectory(Path.directory(outputFile));
 
@@ -472,7 +474,7 @@ class Main
       if (exclusion.endsWith("/"))
       {
         var normalizedFilePath = Path.normalize(file);
-        var normalizedExclusion = Path.normalize(exclusion.substr(0, exclusion.length - 2));
+        var normalizedExclusion = Path.normalize(exclusion);
 
         if (normalizedFilePath.startsWith(normalizedExclusion))
         {
@@ -481,7 +483,7 @@ class Main
       }
       else if (exclusion.endsWith("/*"))
       {
-        var normalizedExclusion = Path.normalize(exclusion);
+        var normalizedExclusion = Path.normalize(exclusion.substr(0, exclusion.length - 2));
         var fileDirectory = Path.directory(Path.normalize(file));
 
         if (fileDirectory == normalizedExclusion)
