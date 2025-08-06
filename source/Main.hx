@@ -323,7 +323,7 @@ class Main
 		var excludes:Null<Array<String>> = COMPRESSION_DATA.excludes;
 		var clean:Null<Bool> = COMPRESSION_DATA.clean;
 
-		if (clean && (output != null && output.length > 0 && FileSystem.exists(output) && FileUtil.isDirectory(output)))
+		if (clean == true && (output != null && output.length > 0 && FileSystem.exists(output) && FileUtil.isDirectory(output)))
 			FileUtil.deletePath(output);
 
 		final excludedFiles:Array<String> = [];
