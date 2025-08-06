@@ -1,5 +1,25 @@
 {
-  "indentation": {
-    "character": "  "
-  }
+	"lineEnds": {
+		"leftCurly": "both",
+		"rightCurly": "both",
+		"emptyCurly": "noBreak",
+		"objectLiteralCurly": {
+			"leftCurly": "after"
+		}
+	},
+	"sameLine": {
+		"ifElse": "next",
+		"doWhile": "next",
+		"tryBody": "next",
+		"tryCatch": "next"
+	},
+	"emptyLines": {
+		"maxAnywhereInFile": 1,
+		"afterPackage": 1,
+		"importAndUsing": {
+			"beforeType": 1,
+			"betweenImports": 1,
+			"betweenImportsLevel": "firstLevelPackage"
+		}
+	}
 }
