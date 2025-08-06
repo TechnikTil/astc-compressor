@@ -12,7 +12,7 @@ haxelib install astc-compressor
 ```
 Or through `Git`, if you want the latest updates
 ```bash
-haxelib git hxluajit-wrapper https://github.com/KarimAkra/astc-compressor.git
+haxelib git astc-compressor https://github.com/KarimAkra/astc-compressor.git
 ```
 
 ### Commands
