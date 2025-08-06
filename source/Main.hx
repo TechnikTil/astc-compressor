@@ -4,7 +4,11 @@ import sys.io.File;
 
 import util.ProcessUtil;
 
+import haxe.Json;
+
 import haxe.io.Path;
+
+import haxe.ds.Map;
 
 import sys.FileSystem;
 
@@ -18,7 +22,7 @@ using StringTools;
 class Main
 {
 	@:noCompletion
-	private static final VERSION:String = '3.1.1';
+	private static final VERSION:String = '1.0.0';
 
 	@:noCompletion
 	private static final SUPPORTED_EXTENSIONS:Array<String> = ['bmp', 'jpg', 'jpeg', 'jpe', 'jfif', 'png', 'tga', 'hdr', 'exr'];
@@ -40,6 +44,12 @@ class Main
 
 	@:noCompletion
 	private static var LIB_PATH:String = '';
+
+	@:noCompletion
+	private static var COMPRESSION_DATA:Null<ComppressionData> = null;
+
+	@:noCompletion
+	private static var CUSTOM_COMPRESSION_DATA:Null<Map<String, CustomCompressionAsset>> = null;
 
 	public static function main():Void
 	{
@@ -131,7 +141,23 @@ class Main
 								Sys.println(ANSIUtil.apply('  -blocksize <4x4|6x6|8x8> is required', [Yellow]));
 
 							if (!hasQuality)
-								Sys.println(ANSIUtil.apply('  -quality <low|medium|high> is required', [Yellow]));
+								Sys.println(ANSIUtil.apply('  -quality <fast|medium|thorough> is required', [Yellow]));
+
+							Sys.exit(1);
+						}
+					case 'compress-from-json':
+						var jsonFile:Null<String> = options.get('json');
+
+						if (jsonFile != null)
+						{
+							parseCompressionJSON(jsonFile);
+							prepareEncoder();
+							compressFromJSONCommand();
+						}
+						else
+						{
+							Sys.println(ANSIUtil.apply('Missing required options for compress-from-json command:', [Red]));
+							Sys.println(ANSIUtil.apply('  -json <json/file/path> is required', [Yellow]));
 
 							Sys.exit(1);
 						}
@@ -217,7 +243,7 @@ class Main
 			final fileList:Array<String> = File.getContent(excludes).split('\n');
 
 			for (i in 0...fileList.length)
-				fileList[i] = fileList[i].trim();
+				excludedFiles[i] = fileList[i].trim();
 		}
 
 		if (FileSystem.exists(input))
@@ -246,7 +272,7 @@ class Main
 
 				for (file in files)
 				{
-					if (!excludedFiles.contains(file))
+					if (!isExcluded(file, excludedFiles))
 						compressFile(colorprofile, file, output, blockSize, quality);
 				}
 			}
@@ -284,7 +310,87 @@ class Main
 		}
 	}
 
-	private static function compressFile(colorprofile:String, file:String, output:Null<String>, blockSize:String, quality:String):Void
+	@:noCompletion
+	private static function compressFromJSONCommand():Void
+	{
+		if (COMPRESSION_DATA == null) return;
+
+		var colorprofile:String = COMPRESSION_DATA.colorprofile;
+		var input:String = COMPRESSION_DATA.input;
+		var blockSize:String = COMPRESSION_DATA.blocksize;
+		var quality:String = COMPRESSION_DATA.quality;
+		var output:String = COMPRESSION_DATA.output;
+		var excludes:Null<Array<String>> = COMPRESSION_DATA.excludes;
+		var clean:Null<Bool> = COMPRESSION_DATA.clean;
+
+		if (clean && (output != null && output.length > 0 && FileSystem.exists(output) && FileUtil.isDirectory(output)))
+			FileUtil.deletePath(output);
+
+		final excludedFiles:Array<String> = [];
+
+		if (excludes != null)
+		{
+			for (i in 0...excludes.length)
+				excludedFiles[i] = excludes[i].trim();
+		}
+
+		if (FileSystem.exists(input))
+		{
+			if (FileUtil.isDirectory(input))
+			{
+				var files:Array<String> = FileUtil.readDirectoryRecursive(input);
+
+				for (i in 0...files.length)
+					files[i] = Path.join([input, files[i]]);
+
+				files = files.filter(function(f:String):Bool
+				{
+					if (f != null && f.length > 0)
+					{
+						final path:Path = new Path(f);
+
+						if (path.ext != null && path.ext.length > 0)
+							return SUPPORTED_EXTENSIONS.contains(path.ext);
+					}
+
+					return false;
+				});
+
+				Sys.println('- ${ANSIUtil.apply('${ANSIUtil.apply('Compressing:', [Black, Bold])} colorProfile=${ANSIUtil.apply(colorprofile, [Yellow])} blockSize=${ANSIUtil.apply(blockSize, [Yellow])} quality=${ANSIUtil.apply(quality, [Yellow])}', [White, Bold])}');
+
+				for (file in files)
+				{
+					if (!isExcluded(file, excludedFiles))
+					{
+						var customDataKey:Null<String> = getCustomDataKey(file);
+
+						if (customDataKey != null && CUSTOM_COMPRESSION_DATA != null)
+						{
+							var customData:Null<CustomCompressionAsset> = CUSTOM_COMPRESSION_DATA.get(customDataKey);
+							@:nullSafety(Off)
+							compressFile(customData.colorprofile ?? colorprofile, file, output, customData.blocksize ?? blockSize, customData.quality ?? quality, true);
+						}
+						else
+						{
+							compressFile(colorprofile, file, output, blockSize, quality, false);
+						}
+					}
+				}
+			}
+			else
+			{
+				Sys.println(ANSIUtil.apply('Input is not a directory. Json compression only works on directories..', [Red]));
+				Sys.exit(1);
+			}
+		}
+		else
+		{
+			Sys.println(ANSIUtil.apply('Input doesnt exist.', [Red]));
+			Sys.exit(1);
+		}
+	}
+
+	private static function compressFile(colorprofile:String, file:String, output:Null<String>, blockSize:String, quality:String, extraLogs:Bool = false):Void
 	{
 		var outputFile:String = Path.withExtension(file, 'astc');
 
@@ -293,7 +399,10 @@ class Main
 
 		FileUtil.createDirectory(Path.directory(outputFile));
 
-		Sys.println('  - ${ANSIUtil.apply(file, [Black, Bold])} as ${ANSIUtil.apply(outputFile, [Yellow])}');
+		if (extraLogs)
+			Sys.println('  - ${ANSIUtil.apply(file, [Black, Bold])} as ${ANSIUtil.apply(outputFile, [Yellow])} (${ANSIUtil.apply(quality + ' - ' + blockSize, [Green, Bold])})');
+		else
+			Sys.println('  - ${ANSIUtil.apply(file, [Black, Bold])} as ${ANSIUtil.apply(outputFile, [Yellow])}');
 
 		ProcessUtil.runCommand(ASTC_ENCODER_PATH, ['-$colorprofile', file, outputFile, blockSize, '-$quality', '-silent']);
 	}
@@ -325,9 +434,10 @@ class Main
 		Sys.println('');
 
 		Sys.println('- ${ANSIUtil.apply('Commands:', [Cyan, Bold])}');
-		Sys.println('  ${ANSIUtil.apply('compress', [Green])}         Compress images in the specified directory or file.');
-		Sys.println('  ${ANSIUtil.apply('rebuild', [Green])}          Rebuilds the Haxe runner.');
-		Sys.println('  ${ANSIUtil.apply('help', [Green])}             Displays this help message.');
+		Sys.println('  ${ANSIUtil.apply('compress', [Green])}             Compress images in the specified directory or file.');
+		Sys.println('  ${ANSIUtil.apply('compress-from-json', [Green])}   Use data from a JSON file to compress images in a specified directory.');
+		Sys.println('  ${ANSIUtil.apply('rebuild', [Green])}              Rebuilds the Haxe runner.');
+		Sys.println('  ${ANSIUtil.apply('help', [Green])}                 Displays this help message.');
 		Sys.println('');
 
 		Sys.println('- ${ANSIUtil.apply('Options for compress:', [Cyan, Bold])}');
@@ -344,6 +454,7 @@ class Main
 		Sys.println('  ${ANSIUtil.apply('haxelib run astc-compressor compress -i ./textures -blocksize 4x4 -quality medium -colorprofile cl -o ./output', [White])}');
 		Sys.println('  ${ANSIUtil.apply('haxelib run astc-compressor compress -i ./image.png -blocksize 8x8 -quality thorough -colorprofile cs -o ./output -clean', [White])}');
 		Sys.println('  ${ANSIUtil.apply('haxelib run astc-compressor compress -i ./textures -blocksize 6x6 -quality fast -colorprofile cH -excludes ./excludes.txt', [White])}');
+		Sys.println('  ${ANSIUtil.apply('haxelib run astc-compressor compress-from-json -json ./compress-data.json', [White])}');
 		Sys.println('');
 
 		Sys.println('- ${ANSIUtil.apply('Notes:', [Cyan, Bold])}');
@@ -352,4 +463,157 @@ class Main
 		Sys.println('  - Use relative paths (e.g., ${ANSIUtil.apply('./', [Blue])}) to avoid file access issues.');
 		Sys.println('  - The compressor supports BMP, JPG, PNG, TGA, HDR, EXR input formats.');
 	}
+
+	@:noCompletion
+	private static function isExcluded(file:String, excludes:Array<String>):Bool
+  {
+    for (exclusion in excludes)
+    {
+      if (exclusion.endsWith("/"))
+      {
+        var normalizedFilePath = Path.normalize(file);
+        var normalizedExclusion = Path.normalize(exclusion.substr(0, exclusion.length - 2));
+
+        if (normalizedFilePath.startsWith(normalizedExclusion))
+        {
+          return true;
+        }
+      }
+      else if (exclusion.endsWith("/*"))
+      {
+        var normalizedExclusion = Path.normalize(exclusion);
+        var fileDirectory = Path.directory(Path.normalize(file));
+
+        if (fileDirectory == normalizedExclusion)
+        {
+          return true;
+        }
+      }
+      else
+      {
+        if (file == exclusion)
+        {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+	@:noCompletion
+	private static function parseCompressionJSON(file:String):Void
+	{
+		if (!FileSystem.exists(file))
+		{
+			Sys.println(ANSIUtil.apply('JSON file $file doesn\'t seem to exist.', [Red]));
+			Sys.exit(1);
+		}
+
+		if (!file.endsWith('.json'))
+		{
+			Sys.println(ANSIUtil.apply('$file is not a JSON file.', [Red]));
+			Sys.exit(1);
+		}
+
+		// @:nullSafety(Off)
+		COMPRESSION_DATA = cast Json.parse(File.getContent(file));
+
+		final colorprofile:Null<String> = COMPRESSION_DATA.colorprofile;
+		final input:Null<String> = COMPRESSION_DATA.input;
+		final blocksize:Null<String> = COMPRESSION_DATA.blocksize;
+		final quality:Null<String> = COMPRESSION_DATA.quality;
+
+		final hasColorProfile:Bool = colorprofile != null
+			&& colorprofile.length > 0 ? COLOR_PROFILES.contains(colorprofile) : false;
+		final hasInput:Bool = input != null && input.length > 0;
+		final hasBlocksize:Bool = blocksize != null && ~/^\d+x\d+$/.match(blocksize);
+		final hasQuality:Bool = quality != null && quality.length > 0 ? COMPRESSION.contains(quality) : false;
+
+		if (!(hasColorProfile && hasInput && hasBlocksize && hasQuality))
+		{
+			Sys.println(ANSIUtil.apply('Missing required data in JSON for compress-from-json command:', [Red]));
+
+			if (!hasColorProfile)
+				Sys.println(ANSIUtil.apply('  "colorprofile" <cl|cs|ch|cH> is required', [Yellow]));
+
+			if (!hasInput)
+				Sys.println(ANSIUtil.apply('  "input" is required', [Yellow]));
+
+			if (!hasBlocksize)
+				Sys.println(ANSIUtil.apply('  "blocksize" <4x4|6x6|8x8> is required', [Yellow]));
+
+			if (!hasQuality)
+				Sys.println(ANSIUtil.apply('  "quality" <fast|medium|thorough> is required', [Yellow]));
+
+			Sys.exit(1);
+		}
+
+		if (COMPRESSION_DATA != null && COMPRESSION_DATA.custom != null)
+		{
+			for (data in COMPRESSION_DATA.custom)
+			{
+				CUSTOM_COMPRESSION_DATA = new Map<String, CustomCompressionAsset>();
+
+				CUSTOM_COMPRESSION_DATA.set(data.asset, data);
+			}
+		}
+	}
+
+	@:noCompletion
+	private static function getCustomDataKey(file:String):Null<String>
+  {
+		if (CUSTOM_COMPRESSION_DATA == null) return null;
+
+    for (asset in CUSTOM_COMPRESSION_DATA.keys())
+    {
+      if (asset.endsWith("/"))
+      {
+        var normalizedFilePath = Path.normalize(file);
+        var normalizedAsset = Path.normalize(asset.substr(0, asset.length - 2));
+
+        if (normalizedFilePath.startsWith(normalizedAsset))
+        {
+          return asset;
+        }
+      }
+      else if (asset.endsWith("/*"))
+      {
+        var normalizedAsset = Path.normalize(asset);
+        var fileDirectory = Path.directory(Path.normalize(file));
+
+        if (fileDirectory == normalizedAsset)
+        {
+          return asset;
+        }
+      }
+      else
+      {
+        if (file == asset)
+        {
+          return asset;
+        }
+      }
+    }
+
+    return null;
+  }
+}
+
+typedef ComppressionData = {
+		public var input:String;
+		public var output:String;
+		public var blocksize:String;
+		public var quality:String;
+		public var colorprofile:String;
+		@:optional public var clean:Bool;
+		@:optional public var excludes:Array<String>;
+		@:optional public var custom:Array<CustomCompressionAsset>;
+}
+
+typedef CustomCompressionAsset = {
+		public var asset:String;
+		@:optional public var blocksize:String;
+		@:optional public var quality:String;
+		@:optional public var colorprofile:String;
 }
