@@ -587,13 +587,10 @@ class Main
 
 		if (COMPRESSION_DATA != null && COMPRESSION_DATA.custom != null)
 		{
-			for (data in COMPRESSION_DATA.custom)
-			{
-				if (CUSTOM_COMPRESSION_DATA == null)
-					CUSTOM_COMPRESSION_DATA = new Map<String, CustomCompressionAsset>();
+			CUSTOM_COMPRESSION_DATA = new Map<String, CustomCompressionAsset>();
 
+			for (data in COMPRESSION_DATA.custom)
 				CUSTOM_COMPRESSION_DATA.set(data.asset, data);
-			}
 		}
 	}
 
