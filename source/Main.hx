@@ -237,6 +237,8 @@ class Main
 	private static function compressCommand(colorprofile:String, input:String, blockSize:String, quality:String, ?output:String, ?excludes:String,
 			?clean:Bool):Void
 	{
+		var doInCwd:Bool = Path.addTrailingSlash(input) == './';
+
 		if (clean && (output != null && output.length > 0 && FileSystem.exists(output) && FileUtil.isDirectory(output)))
 			FileUtil.deletePath(output);
 
@@ -250,11 +252,11 @@ class Main
 				excludedFiles[i] = fileList[i].trim();
 		}
 
-		if (FileSystem.exists(input))
+		if (FileSystem.exists(input) || doInCwd)
 		{
-			if (FileUtil.isDirectory(input))
+			if (FileUtil.isDirectory(input) || doInCwd)
 			{
-				var files:Array<String> = FileUtil.readDirectoryRecursive(input);
+				var files:Array<String> = FileUtil.readDirectoryRecursive(doInCwd ? Sys.getCwd() : input);
 
 				for (i in 0...files.length)
 					files[i] = Path.join([input, files[i]]);
@@ -342,6 +344,7 @@ class Main
 		var output:String = COMPRESSION_DATA.output;
 		var excludes:Null<Array<String>> = COMPRESSION_DATA.excludes;
 		var clean:Null<Bool> = COMPRESSION_DATA.clean ?? false;
+		var doInCwd:Bool = Path.addTrailingSlash(input) == './';
 
 		if (clean && (output != null && output.length > 0 && FileSystem.exists(output) && FileUtil.isDirectory(output)))
 			FileUtil.deletePath(output);
@@ -354,11 +357,11 @@ class Main
 				excludedFiles[i] = excludes[i].trim();
 		}
 
-		if (FileSystem.exists(input))
+		if (FileSystem.exists(input) || doInCwd)
 		{
-			if (FileUtil.isDirectory(input))
+			if (FileUtil.isDirectory(input) || doInCwd)
 			{
-				var files:Array<String> = FileUtil.readDirectoryRecursive(input);
+				var files:Array<String> = FileUtil.readDirectoryRecursive(doInCwd ? Sys.getCwd() : input);
 
 				for (i in 0...files.length)
 					files[i] = Path.join([input, files[i]]);
