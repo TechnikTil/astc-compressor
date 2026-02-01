@@ -1,5 +1,6 @@
 package;
 
+import sys.io.Process;
 import sys.io.File;
 
 import util.ProcessUtil;
@@ -287,11 +288,13 @@ class Main
 				{
 					printTitle();
 
-					Sys.println('- ${ANSIUtil.apply('${ANSIUtil.apply('Compressing:', [Black, Bold])} colorProfile=${ANSIUtil.apply(colorprofile, [Yellow])} blockSize=${ANSIUtil.apply(blockSize, [Yellow])} quality=${ANSIUtil.apply(quality, [Yellow])}', [White, Bold])}');
+					final progress:Progress = new Progress(0, files.length);
+
+					Sys.println('- ${ANSIUtil.apply('${ANSIUtil.apply('Compressing: (${progress.total} file${progress.total > 1 ? 's' : ''})', [Black, Bold])} colorProfile=${ANSIUtil.apply(colorprofile, [Yellow])} blockSize=${ANSIUtil.apply(blockSize, [Yellow])} quality=${ANSIUtil.apply(quality, [Yellow])}', [White, Bold])}');
 
 					for (file in files)
 					{
-						compressFile(colorprofile, file, output, blockSize, quality);
+						compressFile(progress, colorprofile, file, output, blockSize, quality);
 					}
 				}
 			}
@@ -391,23 +394,25 @@ class Main
 				{
 					printTitle();
 
-					Sys.println('- ${ANSIUtil.apply('${ANSIUtil.apply('Compressing:', [Black, Bold])} colorProfile=${ANSIUtil.apply(colorprofile, [Yellow])} blockSize=${ANSIUtil.apply(blockSize, [Yellow])} quality=${ANSIUtil.apply(quality, [Yellow])}', [White, Bold])}');
+					final progress:Progress = new Progress(0, files.length);
+
+					Sys.println('- ${ANSIUtil.apply('${ANSIUtil.apply('Compressing: (${progress.total} file${progress.total > 1 ? 's' : ''})', [Black, Bold])} colorProfile=${ANSIUtil.apply(colorprofile, [Yellow])} blockSize=${ANSIUtil.apply(blockSize, [Yellow])} quality=${ANSIUtil.apply(quality, [Yellow])}', [White, Bold])}');
 
 					for (file in files)
 					{
-						var customDataKey:Null<String> = getCustomDataKey(file);
+						final customDataKey:Null<String> = getCustomDataKey(file);
 
 						if (customDataKey != null && CUSTOM_COMPRESSION_DATA != null)
 						{
 							var customData:Null<CustomCompressionAsset> = CUSTOM_COMPRESSION_DATA.get(customDataKey);
 
 							@:nullSafety(Off)
-							compressFile(customData.colorprofile ?? colorprofile, file, output, customData.blocksize ?? blockSize,
+							compressFile(progress, customData.colorprofile ?? colorprofile, file, output, customData.blocksize ?? blockSize,
 								customData.quality ?? quality, true);
 						}
 						else
 						{
-							compressFile(colorprofile, file, output, blockSize, quality, false);
+							compressFile(progress, colorprofile, file, output, blockSize, quality, false);
 						}
 					}
 				}
@@ -425,7 +430,8 @@ class Main
 		}
 	}
 
-	private static function compressFile(colorprofile:String, file:String, output:Null<String>, blockSize:String, quality:String, extraLogs:Bool = false):Void
+	private static function compressFile(?progress:Progress, colorprofile:String, file:String, output:Null<String>, blockSize:String, quality:String,
+			extraLogs:Bool = false):Void
 	{
 		var outputFile:String = Path.withExtension(file, 'astc');
 
@@ -437,12 +443,42 @@ class Main
 
 		FileUtil.createDirectory(Path.directory(outputFile));
 
-		if (extraLogs)
-			Sys.println('  - ${ANSIUtil.apply(file, [Black, Bold])} as ${ANSIUtil.apply(outputFile, [Yellow])} (${ANSIUtil.apply(quality + ' - ' + blockSize, [Green, Bold])})');
+		if (progress != null)
+		{
+			progress.current++;
+
+			if (extraLogs)
+				Sys.println('  - ${progress.getFormattedProgress()} ${prettyOutputFile(outputFile)} (${ANSIUtil.apply(quality + ' - ' + blockSize, [Green, Bold])})');
+			else
+				Sys.println('  - ${progress.getFormattedProgress()} ${prettyOutputFile(outputFile)}');
+		}
 		else
-			Sys.println('  - ${ANSIUtil.apply(file, [Black, Bold])} as ${ANSIUtil.apply(outputFile, [Yellow])}');
+		{
+			if (extraLogs)
+				Sys.println('  - ${prettyOutputFile(outputFile)} (${ANSIUtil.apply(quality + ' - ' + blockSize, [Green, Bold])})');
+			else
+				Sys.println('  - ${prettyOutputFile(outputFile)}');
+		}
 
 		ProcessUtil.runCommand(ASTC_ENCODER_PATH, ['-$colorprofile', file, outputFile, blockSize, '-$quality', '-silent']);
+	}
+
+	@:noCompletion
+	private static function prettyOutputFile(s:String):String
+	{
+		var outputFile:String = s;
+
+		{
+			var split:Array<String> = outputFile.split('/');
+
+			if (split.length > 1)
+				outputFile = ANSIUtil.apply('${split.slice(0, split.length - 1).join('/')}/${ANSIUtil.applyModifierToCode(Yellow, 1)}${split[split.length - 1]}',
+					[Yellow]);
+			else
+				outputFile = ANSIUtil.apply(outputFile, [ANSIUtil.applyModifierToCode(Yellow, 1)]);
+		}
+
+		return outputFile;
 	}
 
 	@:noCompletion

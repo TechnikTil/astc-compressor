@@ -1,8 +1,11 @@
 package util;
 
+using StringTools;
+
 /**
  * Enum abstract representing ANSI codes for text colors, background colors, and text styles.
  */
+@:forward
 enum abstract ANSICode(String) from String to String
 {
 	var Reset = '\x1b[0m';
@@ -85,6 +88,21 @@ class ANSIUtil
 	public static function apply(input:Dynamic, codes:Array<ANSICode>):String
 	{
 		return stripCodes(codes.join('') + input + ANSICode.Reset);
+	}
+
+	/**
+	 * Adds a numeric modifier to an ANSI code (e.g., bold, underline).
+	 *
+	 * @param code Base ANSI code string.
+	 * @param m Numeric modifier to apply.
+	 * @return ANSI code with the modifier appended.
+	 */
+	public static function applyModifierToCode(code:ANSICode, m:Int):String
+	{
+		if (code.endsWith('m'))
+			return code.substr(0, code.length - 1) + ';' + m + 'm';
+
+		return code + ';' + m + 'm';
 	}
 
 	@:noCompletion
