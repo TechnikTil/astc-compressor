@@ -1,19 +1,17 @@
 package;
 
-import sys.io.Process;
-import sys.io.File;
-
-import util.ProcessUtil;
-
 import haxe.Json;
-import haxe.io.Path;
+import haxe.crypto.Md5;
 import haxe.ds.Map;
+import haxe.io.Path;
 
 import sys.FileSystem;
+import sys.io.File;
 
 import util.ANSIUtil;
 import util.CPUUtil;
 import util.FileUtil;
+import util.ProcessUtil;
 
 using StringTools;
 
@@ -273,11 +271,12 @@ class Main
 							if (output != null && output.length > 0)
 								outputFile = Path.join([output, outputFile]);
 
-							final doesOutputedExist:Bool = FileSystem.exists(outputFile);
 							final supportedExtension:Bool = SUPPORTED_EXTENSIONS.contains(path.ext);
-							final excluded:Bool = isExcluded(path.toString(), excludedFiles);
 
-							return !doesOutputedExist && supportedExtension && !excluded;
+							if (!supportedExtension)
+								return false;
+
+							return needsRecompiled(f, outputFile) && !isExcluded(path.toString(), excludedFiles);
 						}
 					}
 
@@ -379,11 +378,12 @@ class Main
 							if (output != null && output.length > 0)
 								outputFile = Path.join([output, outputFile]);
 
-							final doesOutputedExist:Bool = FileSystem.exists(outputFile);
 							final supportedExtension:Bool = SUPPORTED_EXTENSIONS.contains(path.ext);
-							final excluded:Bool = isExcluded(path.toString(), excludedFiles);
 
-							return !doesOutputedExist && supportedExtension && !excluded;
+							if (!supportedExtension)
+								return false;
+
+							return needsRecompiled(f, outputFile) && !isExcluded(path.toString(), excludedFiles);
 						}
 					}
 
@@ -461,6 +461,8 @@ class Main
 		}
 
 		ProcessUtil.runCommand(ASTC_ENCODER_PATH, ['-$colorprofile', file, outputFile, blockSize, '-$quality', '-silent']);
+
+		File.saveContent(Path.withExtension(outputFile, 'hash'), createHash(file));
 	}
 
 	@:noCompletion
@@ -573,6 +575,35 @@ class Main
 		}
 
 		return false;
+	}
+
+	@:noCompletion
+	private static function needsRecompiled(input:String, output:String):Bool
+	{
+		if (!FileSystem.exists(output))
+			return true;
+
+		final outputHashFilePath:String = Path.withExtension(output, 'hash');
+
+		if (FileSystem.exists(outputHashFilePath))
+		{
+			final inputHashFile:String = createHash(input);
+			final outputHashFile:String = File.getContent(outputHashFilePath).trim();
+
+			// Sys.println('$input $inputHashFile');
+			// Sys.println('$output $outputHashFile');
+			// Sys.println(inputHashFile != outputHashFile);
+
+			return inputHashFile != outputHashFile;
+		}
+
+		return true;
+	}
+
+	@:noCompletion
+	private static function createHash(path:String):String
+	{
+		return Md5.make(File.getBytes(path)).toHex();
 	}
 
 	@:noCompletion
