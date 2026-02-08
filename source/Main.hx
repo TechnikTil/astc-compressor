@@ -438,9 +438,6 @@ class Main
 		if (output != null && output.length > 0)
 			outputFile = Path.join([output, outputFile]);
 
-		if (FileSystem.exists(outputFile))
-			return;
-
 		FileUtil.createDirectory(Path.directory(outputFile));
 
 		if (progress != null)
