@@ -128,7 +128,8 @@ class FileUtil
 	@:noCompletion
 	private static function readHelper(base:String, subPath:String, results:Array<String>, includeDirs:Bool):Void
 	{
-		final fullPath:String = Path.join([base, subPath]);
+		var fullPath:String = Path.join([base, subPath]);
+		if (fullPath.length < 1) fullPath = './';
 
 		for (entry in FileSystem.readDirectory(fullPath))
 		{
