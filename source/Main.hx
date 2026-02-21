@@ -579,20 +579,14 @@ class Main
 		{
 			if (exclusion.endsWith("/"))
 			{
-				var normalizedFilePath = Path.normalize(file);
-				var normalizedExclusion = Path.normalize(exclusion);
-
-				if (normalizedFilePath.startsWith(normalizedExclusion))
-				{
-					return true;
-				}
+				if (file.startsWith(exclusion)) return true;
 			}
 			else if (exclusion.endsWith("/*"))
 			{
-				var normalizedExclusion = Path.normalize(exclusion.substr(0, exclusion.length - 2));
-				var fileDirectory = Path.directory(Path.normalize(file));
+				exclusion = exclusion.substr(0, exclusion.length - 2);
+				var fileDirectory = Path.directory(file);
 
-				if (fileDirectory == normalizedExclusion)
+				if (fileDirectory == exclusion)
 				{
 					return true;
 				}
