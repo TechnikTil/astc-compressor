@@ -4,6 +4,7 @@ import haxe.Json;
 import haxe.crypto.Md5;
 import haxe.ds.Map;
 import haxe.io.Path;
+import haxe.io.Bytes;
 
 import sys.FileSystem;
 import sys.io.File;
@@ -104,6 +105,7 @@ class Main
 						final input:Null<String> = options.get('i');
 						final blocksize:Null<String> = options.get('blocksize');
 						final quality:Null<String> = options.get('quality');
+						final premultiplyAlpha:Null<Bool> = !options.exists('no-premultiplyAlpha');
 
 						final hasColorProfile:Bool = colorprofile != null
 							&& colorprofile.length > 0 ? COLOR_PROFILES.contains(colorprofile) : false;
@@ -114,7 +116,7 @@ class Main
 						if (hasColorProfile && hasInput && hasBlocksize && hasQuality)
 						{
 							@:nullSafety(Off)
-							compressCommand(colorprofile, input, blocksize, quality, options.get('o'), options.get('excludes'), options.exists('clean'));
+							compressCommand(colorprofile, input, blocksize, quality, options.get('o'), options.get('excludes'), premultiplyAlpha, options.exists('clean'));
 						}
 						else
 						{
@@ -234,7 +236,7 @@ class Main
 
 	@:noCompletion
 	private static function compressCommand(colorprofile:String, input:String, blockSize:String, quality:String, ?output:String, ?excludes:String,
-			?clean:Bool):Void
+		?premultiplyAlpha:Bool, ?clean:Bool):Void
 	{
 		if (clean && (output != null && output.length > 0 && FileSystem.exists(output) && FileUtil.isDirectory(output)))
 			FileUtil.deletePath(output);
@@ -276,7 +278,7 @@ class Main
 							if (!supportedExtension)
 								return false;
 
-							return needsRecompiled(f, outputFile) && !isExcluded(path.toString(), excludedFiles);
+							return needsRecompiled(f, outputFile, blockSize, quality, colorprofile, premultiplyAlpha ?? true, []) && !isExcluded(path.toString(), excludedFiles);
 						}
 					}
 
@@ -293,7 +295,7 @@ class Main
 
 					for (file in files)
 					{
-						compressFile(progress, colorprofile, file, output, blockSize, quality);
+						compressFile(progress, colorprofile, file, output, blockSize, quality, premultiplyAlpha ?? true, []);
 					}
 				}
 			}
@@ -309,7 +311,7 @@ class Main
 					{
 						Sys.println('- ${ANSIUtil.apply('${ANSIUtil.apply('Compressing:', [Black, Bold])} colorProfile=${ANSIUtil.apply(colorprofile, [Yellow])} blockSize=${ANSIUtil.apply(blockSize, [Yellow])} quality=${ANSIUtil.apply(quality, [Yellow])}', [White, Bold])}');
 
-						compressFile(colorprofile, path.toString(), output, blockSize, quality);
+						compressFile(colorprofile, path.toString(), output, blockSize, quality, premultiplyAlpha ?? true, []);
 					}
 					else
 					{
@@ -344,6 +346,8 @@ class Main
 		var output:String = COMPRESSION_DATA.output;
 		var excludes:Null<Array<String>> = COMPRESSION_DATA.excludes;
 		var clean:Null<Bool> = COMPRESSION_DATA.clean ?? false;
+		var premultiplyAlpha:Null<Bool> = COMPRESSION_DATA.premultiplyAlpha ?? true;
+		var extraParams:Array<String> = COMPRESSION_DATA.extraParams ?? [];
 
 		if (clean && (output != null && output.length > 0 && FileSystem.exists(output) && FileUtil.isDirectory(output)))
 			FileUtil.deletePath(output);
@@ -383,7 +387,24 @@ class Main
 							if (!supportedExtension)
 								return false;
 
-							return needsRecompiled(f, outputFile) && !isExcluded(path.toString(), excludedFiles);
+							var shouldRecompile:Bool = true;
+							final customDataKey:Null<String> = getCustomDataKey(f);
+
+							if (customDataKey != null && CUSTOM_COMPRESSION_DATA != null)
+							{
+								var customData:Null<CustomCompressionAsset> = CUSTOM_COMPRESSION_DATA.get(customDataKey);
+
+								@:nullSafety(Off)
+								shouldRecompile = needsRecompiled(f, outputFile, customData.blocksize ?? blockSize,
+									customData.quality ?? quality, customData.colorprofile ?? colorprofile,
+									customData.premultiplyAlpha ?? premultiplyAlpha,
+									customData.extraParams == null ? extraParams : customData.extraParams.concat(extraParams));
+							}
+							else
+							{
+								shouldRecompile = needsRecompiled(f, outputFile, blockSize, quality, colorprofile, premultiplyAlpha, extraParams);
+							}
+							return shouldRecompile && !isExcluded(path.toString(), excludedFiles);
 						}
 					}
 
@@ -408,11 +429,11 @@ class Main
 
 							@:nullSafety(Off)
 							compressFile(progress, customData.colorprofile ?? colorprofile, file, output, customData.blocksize ?? blockSize,
-								customData.quality ?? quality, true);
+								customData.quality ?? quality, customData.premultiplyAlpha ?? premultiplyAlpha, customData.extraParams == null ? extraParams : customData.extraParams.concat(extraParams), true);
 						}
 						else
 						{
-							compressFile(progress, colorprofile, file, output, blockSize, quality, false);
+							compressFile(progress, colorprofile, file, output, blockSize, quality, premultiplyAlpha, extraParams, false);
 						}
 					}
 				}
@@ -431,7 +452,7 @@ class Main
 	}
 
 	private static function compressFile(?progress:Progress, colorprofile:String, file:String, output:Null<String>, blockSize:String, quality:String,
-			extraLogs:Bool = false):Void
+		premultiplyAlpha:Bool, extraParams:Array<String>, extraLogs:Bool = false):Void
 	{
 		var outputFile:String = Path.withExtension(file, 'astc');
 
@@ -457,9 +478,23 @@ class Main
 				Sys.println('  - ${prettyOutputFile(outputFile)}');
 		}
 
-		ProcessUtil.runCommand(ASTC_ENCODER_PATH, ['-$colorprofile', file, outputFile, blockSize, '-$quality', '-silent']);
+		var args:Array<String> = [];
+		args.push('-$colorprofile');
+		args.push(file);
+		args.push(outputFile);
+		args.push(blockSize);
+		args.push('-$quality');
+		args.push('-silent');
+		if (premultiplyAlpha) args.push('-pp-premultiply');
+		args = args.concat(extraParams);
 
-		File.saveContent(Path.withExtension(outputFile, 'hash'), createHash(file));
+		ProcessUtil.runCommand(ASTC_ENCODER_PATH, args);
+
+		final hashData = Bytes.ofString(createHash(file, blockSize, quality, colorprofile, premultiplyAlpha, extraParams));
+		final output = File.write(Path.withExtension(outputFile, 'hash'), true);
+		output.writeInt32(hashData.length);
+		output.write(hashData);
+		output.close();
 	}
 
 	@:noCompletion
@@ -575,7 +610,7 @@ class Main
 	}
 
 	@:noCompletion
-	private static function needsRecompiled(input:String, output:String):Bool
+	private static function needsRecompiled(input:String, output:String, blocksize:String, quality:String, colorprofile:String, premultiplyAlpha:Bool, extraParams:Array<String>):Bool
 	{
 		if (!FileSystem.exists(output))
 			return true;
@@ -584,23 +619,37 @@ class Main
 
 		if (FileSystem.exists(outputHashFilePath))
 		{
-			final inputHashFile:String = createHash(input);
-			final outputHashFile:String = File.getContent(outputHashFilePath).trim();
+			final outputHashFile = File.read(outputHashFilePath);
+			final dataLength = outputHashFile.readInt32();
 
-			// Sys.println('$input $inputHashFile');
-			// Sys.println('$output $outputHashFile');
-			// Sys.println(inputHashFile != outputHashFile);
+			final outputHash:String = outputHashFile.read(dataLength).toString().trim();
+			final inputHash:String = createHash(input, blocksize, quality, colorprofile, premultiplyAlpha, extraParams);
+			outputHashFile.close();
 
-			return inputHashFile != outputHashFile;
+			// Sys.println('$input $inputHash');
+			// Sys.println('$output $outputHash');
+			// Sys.println(inputHash != outputHash);
+
+			return inputHash != outputHash;
 		}
 
 		return true;
 	}
 
 	@:noCompletion
-	private static function createHash(path:String):String
+	private static function createHash(path:String, blocksize:String, quality:String, colorprofile:String, premultiplyAlpha:Bool, extraParams:Array<String>):String
 	{
-		return Md5.make(File.getBytes(path)).toHex();
+		var astcFormatList:Array<String> = [];
+		astcFormatList.push(path);
+		astcFormatList.push(blocksize);
+		astcFormatList.push(quality);
+		astcFormatList.push(colorprofile);
+		astcFormatList.push(premultiplyAlpha ? 'true' : 'false');
+		astcFormatList = astcFormatList.concat(extraParams);
+		var astcFormat:String = astcFormatList.join('//');
+		var astcData:Bytes = Bytes.ofString(astcFormat);
+		var sourceData:Bytes = File.getBytes(path);
+		return '${Md5.make(sourceData).toHex() + Md5.make(astcData).toHex()}'.trim();
 	}
 
 	@:noCompletion
@@ -706,6 +755,8 @@ typedef ComppressionData =
 	public var blocksize:String;
 	public var quality:String;
 	public var colorprofile:String;
+	@:optional public var premultiplyAlpha:Bool;
+	@:optional public var extraParams:Array<String>;
 	@:optional public var clean:Bool;
 	@:optional public var excludes:Array<String>;
 	@:optional public var custom:Array<CustomCompressionAsset>;
@@ -717,4 +768,6 @@ typedef CustomCompressionAsset =
 	@:optional public var blocksize:String;
 	@:optional public var quality:String;
 	@:optional public var colorprofile:String;
+	@:optional public var premultiplyAlpha:Bool;
+	@:optional public var extraParams:Array<String>;
 }
